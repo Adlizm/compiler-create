@@ -1,1 +1,5 @@
-test 2022 3.1415 'c' function
+test
+2022// a inline comment
+3.1415 'c' /* 
+    a block of comments
+*/function

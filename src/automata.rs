@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::regex::Regex;
+use crate::{regex::Regex, tokens::DEFAULT};
 
 pub const INIT_STATE: i16 = 0; 
 pub const ERROR_STATE: i16 = -1;
@@ -7,24 +7,21 @@ pub const ERROR_STATE: i16 = -1;
 #[derive(Debug)]
 pub struct TokensNFA {
     pub states: i16,
-    pub finals: Vec<i16>,
+    pub finals: Vec<(String, u8, i16)>,
     pub transitions: HashMap<(i16, u8), Vec<i16>>,
-    pub token_state: HashMap<String, i16>
 }
 
 impl TokensNFA {
-    pub fn new(tokens_regexs: Vec<(String, Regex)>) -> Self {
+    pub fn new(tokens_regexs: Vec<(String, u8, Regex)>) -> Self {
         let mut states = 1;
         let mut finals = Vec::new();
         let mut transitions = HashMap::new();
-        let mut token_state = HashMap::new();
 
-        let mut nfa = Self {states, finals, transitions, token_state };
+        let mut nfa = Self {states, finals, transitions};
         
-        for (token_name, regex) in tokens_regexs{
+        for (token_name, attrs, regex) in tokens_regexs{
             let final_state = nfa.include_regex(INIT_STATE, regex);
-            nfa.finals.push(final_state);
-            nfa.token_state.insert(token_name, final_state);
+            nfa.finals.push((token_name, attrs, final_state));
         }
         return nfa;
     }
@@ -34,12 +31,13 @@ impl TokensNFA {
     }
 
     fn test(&self, string: String, step: usize, current: i16) -> Option<String>{
-        if step >= string.len() && self.finals.contains(&current) {
-            for (k, v) in &self.token_state {
-                if *v == current {
-                    return Some(k.to_string());
+        if step >= string.len() {
+            for (name, _, state) in &self.finals {
+                if *state == current {
+                    return Some(name.to_string());
                 }
             }
+            return None;
         }
         if let Some(nexts) = self.transitions.get(&(current, string.as_bytes()[step as usize])) {
             for next in nexts {
@@ -107,7 +105,7 @@ impl TokensNFA {
     }
 
     fn insert_empty_transition(&mut self, from: i16, to: i16){
-        for (k, v) in self.transitions.iter_mut() {
+        for (_, v) in self.transitions.iter_mut() {
             for states in v {
                 if *states == from {
                     *states = to;
@@ -121,30 +119,25 @@ impl TokensNFA {
 #[derive(Debug)]
 pub struct TokensDFA {
     pub states: u16,
-    pub finals: Vec<bool>,
-    pub transitions: Vec<[i16; 256]>,
-    pub token_state: Vec<Option<String>>
+    pub finals: Vec<(Option<String>, u8)>,
+    pub transitions: Vec<[i16; 256]>
 }
 
 impl TokensDFA {
-    pub fn new(nfa: TokensNFA) -> Self {
-        let afd = TokensDFA::from_nfa(nfa);
+    pub fn new(tokens_regexs: Vec<(String, u8, Regex)>) -> Self {
+        let afd = TokensDFA::from_nfa(TokensNFA::new(tokens_regexs));
 
         let states = afd.0.len() as u16;
-        let mut finals = vec![false; states as usize];
-        let mut token_state = vec![None; states as usize];
+        let mut finals = vec![(None, DEFAULT); states as usize];
         
-        for index in afd.1 {
-            finals[index as usize] = true;
+        for (name, mask, state) in afd.1 {
+            finals[state as usize] = (Some(name), mask);
         }
-        for (s, t) in afd.2 {
-            token_state[t as usize] = Some(s);
-        }
+        
         Self { 
             states, 
             finals,
             transitions: afd.0, 
-            token_state,
         }
     }
 
@@ -156,20 +149,18 @@ impl TokensDFA {
                 return None;
             }
         }
-        if let Some(token) = &self.token_state[state as usize]{
+        if let (Some(token), _) = &self.finals[state as usize]{
             return Some(token.to_string())
         }
         return None;
     }
 
-    fn from_nfa(nfa: TokensNFA) -> (Vec<[i16; 256]>, Vec<i16>, HashMap<String, i16>) {
+    fn from_nfa(nfa: TokensNFA) -> (Vec<[i16; 256]>, Vec<(String, u8, i16)>) {
         let finals = nfa.finals; 
-        let token_state = nfa.token_state;
         let transitions = nfa.transitions;
 
         let mut table: Vec<[i16; 256]> = vec![[ERROR_STATE; 256]];
-        let mut new_finals: Vec<i16> = Vec::new();
-        let mut new_tokens: HashMap::<String, i16> = HashMap::new();
+        let mut new_finals: Vec<(String, u8, i16)> = Vec::new();
 
         let mut states = vec![vec![INIT_STATE]];
         let mut total_states = 1;
@@ -181,14 +172,11 @@ impl TokensDFA {
 
             for letter in 0..=255 {
                 let mut new_state = Vec::new();
-                let mut is_final = true;
-
                 for current in &states[i] {
                     if transitions.contains_key(&(*current, letter)) {
                         for next in transitions.get(&(*current, letter)).unwrap() {
                             if !new_state.contains(next) {
                                 new_state.push(*next);
-                                is_final = is_final && finals.contains(next);
                             }
                         }
                     }
@@ -205,14 +193,11 @@ impl TokensDFA {
                         }
                     }
                 } else {
-                    if is_final{
-                        new_finals.push(total_states as i16);
-                        for (t, other) in &token_state {
-                            if new_state.contains(other) {
-                                new_tokens.insert(t.to_string(), total_states as i16);
-                                break;
-                            } 
-                        }
+                    for (name, attr, other) in &finals {
+                        if new_state.contains(&other) {
+                            new_finals.push((name.to_string(), *attr, total_states as i16));
+                            break;
+                        } 
                     }
                     states.push(new_state);
                     table.push([ERROR_STATE; 256]);
@@ -221,6 +206,6 @@ impl TokensDFA {
                 }
             }
         }
-        return (table, new_finals, new_tokens);
+        return (table, new_finals);
     }
 }
