@@ -4,6 +4,7 @@ pub const USE_IGNORE_THIS: u8 = 4;
 pub const USE_INIT_COMMENT: u8 = 12;
 pub const USE_END_COMMENT: u8 = 0;
 
+#[derive(Debug)]
 pub struct Token{
     pub t_type: i16,
     pub t_name: Option<String>

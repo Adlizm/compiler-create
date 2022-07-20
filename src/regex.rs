@@ -5,7 +5,9 @@ pub enum Regex {
     Concat(Vec<Regex>),
     Union(Vec<Regex>),
     Repeat(Box<Regex>),
-    Terminal(u8)
+    Word(Vec<u8>),
+    Char(u8),
+    Empty
 }
 impl Clone for Regex {
     fn clone(&self) -> Self {
@@ -27,18 +29,26 @@ impl Clone for Regex {
             Regex::Repeat(re) => {
                 Regex::Repeat(re.clone())
             },
-            Regex::Terminal(s) => {
-                Regex::Terminal(s.clone())
+            Regex::Word(s) => {
+                Regex::Word(s.clone())
             },
+            Regex::Char(c) => Regex::Char(*c),
+            Regex::Empty => Regex::Empty,
         }
     }
 }
 
+pub fn empty() -> Regex {
+    Regex::Empty
+}
 
 pub fn from_set(set: Range<u8>) -> Regex {
-    let mut vec_char: Vec<Regex> = Vec::new();
+    if set.is_empty() {
+        return Regex::Empty;
+    }
+    let mut vec_char = Vec::new();
     for char in set {
-        vec_char.push(Regex::Terminal(char));
+        vec_char.push(Regex::Char(char));
     }
     Regex::Union(vec_char)
 }
@@ -46,24 +56,27 @@ pub fn from_set(set: Range<u8>) -> Regex {
 pub fn all() -> Regex {
     let mut vec_char: Vec<Regex> = Vec::new();
     for char in 0..=255 {
-        vec_char.push(Regex::Terminal(char));
+        vec_char.push(Regex::Char(char));
     }
     Regex::Union(vec_char)
 }
 
 pub fn from_char(char: u8) -> Regex {
-    Regex::Terminal(char)
+    Regex::Char(char)
 }
 
 pub fn from_word(word: &str) -> Regex { 
-    let mut vec_char: Vec<Regex> = Vec::new();
-    for char in word.as_bytes() {
-        vec_char.push(Regex::Terminal(*char));
+    let mut vec_char: Vec<u8> = word.as_bytes().to_vec();
+    if vec_char.is_empty() {
+        return Regex::Empty;
     }
-    Regex::Concat(vec_char)
+    Regex::Word(vec_char)
 }
 
 pub fn concat(regexs: Vec<&Regex>) -> Regex {
+    if regexs.is_empty() {
+        return Regex::Empty;
+    }
     let mut rc = Vec::new();
     for re in regexs {
         rc.push(re.clone());
@@ -72,6 +85,9 @@ pub fn concat(regexs: Vec<&Regex>) -> Regex {
 }
 
 pub fn union(regexs: Vec<&Regex>) -> Regex {
+    if regexs.is_empty() {
+        return Regex::Empty;
+    }
     let mut rc = Vec::new();
     for re in regexs {
         rc.push(re.clone());

@@ -65,10 +65,10 @@ impl SyntaxAnalysis {
 
     pub fn next_token(&mut self) -> Token {
         let mut state = INIT_STATE;
-        let mut oldState = ERROR_STATE;
+        let mut old_state = ERROR_STATE;
         loop {
-            oldState = state;
-            state = self.dfa.table[state as usize][self.char as usize];
+            old_state = state;
+            state = self.dfa.transitions[state as usize][self.char as usize];
             
             if state == ERROR_STATE {
                 break;
@@ -76,8 +76,10 @@ impl SyntaxAnalysis {
             self.next_char();
         }
 
-        if self.dfa.finals[oldState as usize] {
-            let token_type = self.dfa.token_state[oldState as usize].as_ref().unwrap();
+        if  !self.dfa.finals[old_state as usize] {
+            panic!("Error({},{}): charcter '{}' not expect", self.row, self.col, self.char);
+        }else {
+            let token_type = self.dfa.token_state[old_state as usize].as_ref().unwrap();
             let uses = self.tokens_attrs.get(token_type).unwrap();
             let init = self.init;
             
@@ -91,12 +93,10 @@ impl SyntaxAnalysis {
             
             if uses & USE_GET_LEXEME != 0 {
                 let t_name = Some(get_string_buffer(&self.buffer, init, self.next));
-                Token { t_type: oldState, t_name }
+                Token { t_type: old_state, t_name }
             } else { 
-                Token { t_type: oldState, t_name: None } 
+                Token { t_type: old_state, t_name: None } 
             }
-        }else {
-            panic!("Error({},{}): charcter '{}' not expect", self.row, self.col, self.char);
         }
     }
 
@@ -121,7 +121,7 @@ impl SyntaxAnalysis {
         'init: loop {  
             let mut state = INIT_STATE;
             while state != ERROR_STATE  {
-                state = self.dfa.table[state as usize][self.char as usize];
+                state = self.dfa.transitions[state as usize][self.char as usize];
                 self.next_char();
                 if state == final_state{
                     break 'init;
