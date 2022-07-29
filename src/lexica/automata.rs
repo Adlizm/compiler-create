@@ -1,23 +1,24 @@
 use std::collections::HashMap;
-use crate::{regex::Regex, tokens::DEFAULT};
+use std::fmt::Debug;
+use std::hash::Hash;
 
-pub const INIT_STATE: i16 = 0; 
-pub const ERROR_STATE: i16 = -1;
+use crate::lexica::{regex::Regex, tokens::DEFAULT};
+use crate::lexica::tokens::TokenUses;
+
+type State = i32;
+pub const INIT_STATE: State = 0; 
+pub const ERROR_STATE: State = -1;
 
 #[derive(Debug)]
-pub struct TokensNFA {
-    pub states: i16,
-    pub finals: Vec<(String, u8, i16)>,
-    pub transitions: HashMap<(i16, u8), Vec<i16>>,
+pub struct TokensNFA<T> where T: Eq + Copy + Hash + Debug {
+    pub states: State,
+    pub finals: Vec<(T, TokenUses, State)>,
+    pub transitions: HashMap<(State, u8), Vec<State>>,
 }
 
-impl TokensNFA {
-    pub fn new(tokens_regexs: Vec<(String, u8, Regex)>) -> Self {
-        let mut states = 1;
-        let mut finals = Vec::new();
-        let mut transitions = HashMap::new();
-
-        let mut nfa = Self {states, finals, transitions};
+impl<T> TokensNFA<T> where T: Eq + Copy + Hash + Debug {
+    pub fn new(tokens_regexs: Vec<(T, TokenUses, Regex)>) -> Self {
+        let mut nfa = Self {states: 1, finals: Vec::new(), transitions: HashMap::new()};
         
         for (token_name, attrs, regex) in tokens_regexs{
             let final_state = nfa.include_regex(INIT_STATE, regex);
@@ -26,15 +27,15 @@ impl TokensNFA {
         return nfa;
     }
 
-    pub fn test_string(self, string: String) -> Option<String> {
+    pub fn test_string(self, string: String) -> Option<T> {
         return self.test(string, 0, INIT_STATE);
     }
 
-    fn test(&self, string: String, step: usize, current: i16) -> Option<String>{
+    fn test(&self, string: String, step: usize, current: State) -> Option<T>{
         if step >= string.len() {
             for (name, _, state) in &self.finals {
                 if *state == current {
-                    return Some(name.to_string());
+                    return Some(*name);
                 }
             }
             return None;
@@ -49,7 +50,7 @@ impl TokensNFA {
         return None;
     }
 
-    fn include_regex(&mut self,mut current_state: i16, regex: Regex) -> i16{
+    fn include_regex(&mut self,mut current_state: State, regex: Regex) -> State{
         match regex {
             Regex::Concat(regexs) => {
                 for re in regexs {
@@ -104,7 +105,7 @@ impl TokensNFA {
         
     }
 
-    fn insert_empty_transition(&mut self, from: i16, to: i16){
+    fn insert_empty_transition(&mut self, from: State, to: State){
         for (_, v) in self.transitions.iter_mut() {
             for states in v {
                 if *states == from {
@@ -117,17 +118,17 @@ impl TokensNFA {
 
 
 #[derive(Debug)]
-pub struct TokensDFA {
-    pub states: u16,
-    pub finals: Vec<(Option<String>, u8)>,
-    pub transitions: Vec<[i16; 256]>
+pub struct TokensDFA<T> where T: Eq + Copy + Hash + Debug{
+    pub states: u32,
+    pub finals: Vec<(Option<T>, TokenUses)>,
+    pub transitions: Vec<[State; 256]>
 }
 
-impl TokensDFA {
-    pub fn new(tokens_regexs: Vec<(String, u8, Regex)>) -> Self {
+impl<T> TokensDFA<T> where T: Eq + Copy + Hash + Debug {
+    pub fn new(tokens_regexs: Vec<(T, TokenUses, Regex)>) -> Self {
         let afd = TokensDFA::from_nfa(TokensNFA::new(tokens_regexs));
 
-        let states = afd.0.len() as u16;
+        let states = afd.0.len() as u32;
         let mut finals = vec![(None, DEFAULT); states as usize];
         
         for (name, mask, state) in afd.1 {
@@ -141,7 +142,7 @@ impl TokensDFA {
         }
     }
 
-    pub fn test_string(&self, string: String) -> Option<String> {
+    pub fn test_string(&self, string: String) -> Option<T> {
         let mut state = INIT_STATE; 
         for char in string.as_bytes(){
             state = self.transitions[state as usize][*char as usize];
@@ -150,17 +151,17 @@ impl TokensDFA {
             }
         }
         if let (Some(token), _) = &self.finals[state as usize]{
-            return Some(token.to_string())
+            return Some(*token)
         }
         return None;
     }
 
-    fn from_nfa(nfa: TokensNFA) -> (Vec<[i16; 256]>, Vec<(String, u8, i16)>) {
+    fn from_nfa(nfa: TokensNFA<T>) -> (Vec<[State; 256]>, Vec<(T, TokenUses, State)>) {
         let finals = nfa.finals; 
         let transitions = nfa.transitions;
 
-        let mut table: Vec<[i16; 256]> = vec![[ERROR_STATE; 256]];
-        let mut new_finals: Vec<(String, u8, i16)> = Vec::new();
+        let mut table: Vec<[State; 256]> = vec![[ERROR_STATE; 256]];
+        let mut new_finals: Vec<(T, TokenUses, State)> = Vec::new();
 
         let mut states = vec![vec![INIT_STATE]];
         let mut total_states = 1;
@@ -188,20 +189,20 @@ impl TokensDFA {
                 if states.contains(&new_state) {
                     for index in 0..total_states {
                         if states[index] == new_state {
-                            table[i][letter as usize] = index as i16;
+                            table[i][letter as usize] = index as State;
                             break;
                         }
                     }
                 } else {
                     for (name, attr, other) in &finals {
                         if new_state.contains(&other) {
-                            new_finals.push((name.to_string(), *attr, total_states as i16));
+                            new_finals.push((*name, *attr, total_states as State));
                             break;
                         } 
                     }
                     states.push(new_state);
                     table.push([ERROR_STATE; 256]);
-                    table[i][letter as usize] = total_states as i16;                    
+                    table[i][letter as usize] = total_states as State;                    
                     total_states += 1;
                 }
             }
