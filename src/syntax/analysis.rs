@@ -18,14 +18,14 @@ pub struct SyntaxAnalysis<T>
     rules: Vec<Rule<T>>,
     firts_table: FirstTable<T>,
     next_token: Option<Token<T>>,
-    callback: fn(&Derivation<T>) -> Result<(), String>
+    callback: fn(T, &Derivation<T>) -> Result<(), String>
 }
 
 impl<T> SyntaxAnalysis<T> 
     where 
         T: Eq + Copy + Hash + Debug + IsTerminal
 {
-    pub fn new(rules: Vec<Rule<T>>, callback: fn(&Derivation<T>) -> Result<(), String>) -> Self {
+    pub fn new(rules: Vec<Rule<T>>, callback: fn(T, &Derivation<T>) -> Result<(), String>) -> Self {
         Self {
             firts_table: First::calculate(&rules),
             rules: rules,
@@ -49,7 +49,7 @@ impl<T> SyntaxAnalysis<T>
         return Ok(())
     }
 
-    pub fn evaluate_derivation(&mut self, derivation: &Derivation<T>, current: T, la: &mut LexicalAnalysis<T>) -> Result<(), String> {
+    pub fn evaluate_derivation(&mut self, current: T, derivation: &Derivation<T>, la: &mut LexicalAnalysis<T>) -> Result<(), String> {
         if let Derivation::Normal(vars) = derivation {
             for var in vars {
                 if var.is_terminal() {
@@ -73,7 +73,7 @@ impl<T> SyntaxAnalysis<T>
                 }
             }
         }
-        return (self.callback)(derivation);
+        return (self.callback)(current, derivation);
     }
     pub fn analysis(&mut self, current: T, la: &mut LexicalAnalysis<T>) -> Result<(), String> {
         if current.is_terminal() {
@@ -90,7 +90,7 @@ impl<T> SyntaxAnalysis<T>
                             },
                             Derivation::Normal(vars_seq) => { 
                                 if First::first_from(&self.firts_table, vars_seq[0], token.t_type) {
-                                    return self.evaluate_derivation(derivation, current, la);
+                                    return self.evaluate_derivation(current, derivation, la);
                                 }
                             }
                         }
