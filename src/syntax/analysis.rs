@@ -1,166 +1,117 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::lexica::analysis::LexicalAnalysis;
-use crate::lexica::tokens::Token;
-
-#[derive (Clone)]
-pub enum Transition<T> 
-    where 
-        T: Eq + Copy + Hash + Debug
-{
-    Empty,
-    Normal(Vec<T>)
-}
-
-#[derive (Clone, Copy, PartialEq, Eq)]
-enum First<T> 
-    where 
-        T: Eq + Copy + Hash + Debug   
-{
-    Empty,
-    Terminal(T)
-}
-
+use crate::lexica::{
+    analysis::LexicalAnalysis,
+    tokens::Token
+};
+use crate::syntax::{
+    first::{First, FirstTable}, 
+    utils::IsTerminal,
+    rules::{Rule, Derivation},
+};
 
 pub struct SyntaxAnalysis<T> 
     where 
-        T: Eq + Copy + Hash + Debug
+        T: Eq + Copy + Hash + Debug + IsTerminal
 {
-    not_terminals: Vec<T>,
-    rules: HashMap<T, Vec<Transition<T>>>,
-    first: HashMap<T, Vec<First<T>>>,
-    next: Option<Token<T>>
+    rules: Vec<Rule<T>>,
+    firts_table: FirstTable<T>,
+    next_token: Option<Token<T>>,
+    callback: fn(&Derivation<T>) -> Result<(), String>
 }
 
 impl<T> SyntaxAnalysis<T> 
     where 
-        T: Eq + Copy + Hash + Debug
+        T: Eq + Copy + Hash + Debug + IsTerminal
 {
-    pub fn new(rules: Vec<(T, Vec<T>)>) -> Self {
-        let mut sa = Self {
-            not_terminals: Vec::new(),
-            rules: HashMap::new(),
-            first: HashMap::new(),
-            next: None,
-        };
-
-        for (var, rule) in &rules {
-            if !sa.not_terminals.contains(var) {
-                sa.not_terminals.push(*var);
-                sa.rules.insert(*var, Vec::new());
-                sa.first.insert(*var, Vec::new());
-            }
-            if rule.is_empty() {
-                sa.rules.get_mut(var).unwrap().push(Transition::Empty);
-                sa.first.get_mut(var).unwrap().push(First::Empty);
-                continue;
-            } 
-            sa.rules.get_mut(var).unwrap().push(Transition::Normal(rule.clone()));
+    pub fn new(rules: Vec<Rule<T>>, callback: fn(&Derivation<T>) -> Result<(), String>) -> Self {
+        Self {
+            firts_table: First::calculate(&rules),
+            rules: rules,
+            next_token: None,
+            callback
         }
-        for (var, rule) in &rules {
-            if !rule.is_empty() && !sa.not_terminals.contains(&rule[0]){
-                sa.first.get_mut(var).unwrap().push(First::Terminal(rule[0]));
-            }
-        } 
-
-        sa.calculate_first();
-        
-        return sa;
     }
 
     pub fn init(&mut self, initial: T, la: &mut LexicalAnalysis<T>) -> Result<(), String> {
-        if !self.not_terminals.contains(&initial) {
+        if initial.is_terminal() {
             return Err(String::from("Error: unable to derive language from a terminal variable"))
         }
-        self.next = la.next();
+
+        self.next_token = la.next();
         if let Err(error) = self.analysis(initial, la) {
             return Err(error);
         }
-
-        if let None = self.next {
-            return Err(String::from("Error: Epected end of file, and found another token"));
+        if let None = self.next_token {
+            return Err(String::from("Error: Expect end of file, and found another token"));
         }
         return Ok(())
     }
 
-    fn calculate_first(&mut self) {
-        loop {
-            let mut appended = false;
-
-            for (var, rule) in &self.rules {
-                let mut var_firsts: Vec<First<T>> = self.first.get(&var).unwrap().clone();
-                'step1: for transition in rule {
-                            if let Transition::Normal(vec) = transition {
-                                for next in vec {
-                                    if self.not_terminals.contains(&next) {
-                                        let next_firsts: Vec<First<T>> = self.first.get(&next).unwrap().clone();
-                                        for next_f in &next_firsts {
-                                            if !var_firsts.contains(next_f) && (*next_f) != First::Empty {
-                                                var_firsts.push(*next_f);
-                                                appended = true;
-                                            }
-                                        }
-                                        if !next_firsts.contains(&First::Empty) {
-                                            continue 'step1;
-                                        }
-                                    } else {
-                                        if !var_firsts.contains(&First::Terminal(*next)) {
-                                            var_firsts.push(First::Terminal(*next));
-                                            appended = true;
-                                        }
-                                        continue 'step1;
-                                    }
-                                }
-                                if !var_firsts.contains(&First::Empty) {
-                                    var_firsts.push(First::Empty);
-                                    appended = true;
-                                }
-                            }
+    pub fn evaluate_derivation(&mut self, derivation: &Derivation<T>, current: T, la: &mut LexicalAnalysis<T>) -> Result<(), String> {
+        if let Derivation::Normal(vars) = derivation {
+            for var in vars {
+                if var.is_terminal() {
+                    if let Some(token) = &self.next_token  {
+                        if *var == token.t_type {
+                            self.next_token = la.next();
+                            continue;
                         }
-                self.first.insert(*var, var_firsts);
-            }
-
-            if !appended {
-                break;
-            }
-        }
-    }
-
-    fn first_from(&self, token: T, var: T) -> bool {
-        ( self.not_terminals.contains(&var) && self.first.get(&var).unwrap().contains(&First::Terminal(token)) ) 
-        || var == token
-    }
-
-    fn analylis_rule(&self, rule: &Transition<T>, la: &mut LexicalAnalysis<T>) ->Result<(), String> {
-        todo!()
-    }
-    fn analysis(&self, var: T, la: &mut LexicalAnalysis<T>) -> Result<(), String> {
-        if let Some(token) = &self.next {
-            if self.first_from(token.t_type, var) {
-                for rule in self.rules.get(&var).unwrap() {
-                    match rule {
-                        Transition::Empty => {}
-                        Transition::Normal(vars) => {
-                            if self.first_from(token.t_type, vars[0]) {
-                                return self.analylis_rule(rule, la);
-                            }
-                        },
+                        return Err(String::from(
+                            format!("Error({},{}): Expect {:?} and found {:?}", la.row, la.col, *var, token.t_type))
+                        );
+                    }
+                    return Err(String::from(
+                        format!("Error({},{}): Expect {:?} and found None", la.row, la.col, *var))
+                    );
+                } else {
+                    let result = self.analysis(*var, la);
+                    if let Err(_) = result {
+                        return result;
                     }
                 }
             }
-            if self.first.get(&var).unwrap().contains(&First::Empty) {
-                return Ok(());
-            }
-            return Err(format!("Error({},{}): Token {:?} not expected", la.row, la.col, token.t_type));
-        } else if !self.first.get(&var).unwrap().contains(&First::Empty) {
-            return Err(format!("Error({},{}): tokens expected and not found", la.row, la.col));
         }
-        return Ok(())
+        return (self.callback)(derivation);
     }
-    
-
+    pub fn analysis(&mut self, current: T, la: &mut LexicalAnalysis<T>) -> Result<(), String> {
+        if current.is_terminal() {
+            return Err(String::from("Error: cannot make derivation a terminal variable"))
+        }
+        if let Some(token) = &self.next_token {
+            let mut contains_empyty = false;
+            for rule in self.rules.clone() {
+                if rule.from() == current {
+                    for derivation in rule.derivations() {
+                        match derivation {
+                            Derivation::Empty => { 
+                                contains_empyty = true 
+                            },
+                            Derivation::Normal(vars_seq) => { 
+                                if First::first_from(&self.firts_table, vars_seq[0], token.t_type) {
+                                    return self.evaluate_derivation(derivation, current, la);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if !contains_empyty {
+                let firts = self.firts_table.get(&current).unwrap();
+                return Err(String::from(
+                    format!("Error({},{}): Expect {:?} and found {:?}", la.row, la.col, firts, token.t_type))
+                );
+            }
+            return Ok(())
+        } else if First::firts_empty(&self.firts_table, current) {
+            let firts = self.firts_table.get(&current).unwrap();
+            return Err(String::from(
+                format!("Error({},{}): Expect {:?} and found None", la.row, la.col, firts))
+            );
+        }
+        Err(String::from(""))
+    }
     
 }
 

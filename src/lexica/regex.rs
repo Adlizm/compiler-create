@@ -1,6 +1,5 @@
 use std::ops::{Add, BitOr, RangeInclusive};
 
-#[derive (Debug)]
 pub enum Regex {
     Concat(Vec<Regex>),
     Union(Vec<Regex>),

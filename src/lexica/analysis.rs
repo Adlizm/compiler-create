@@ -1,17 +1,13 @@
 use std::{fs::File, io::Read};
-use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::lexica::regex::Regex;
 use crate::lexica::automata::{TokensDFA, ERROR_STATE, INIT_STATE};
-use crate::lexica::tokens::{
-    Token, TokenUses, 
-    GET_LEXEME, INIT_BLOCK_COMMENT, IGNORE_THIS, END_BLOCK_COMMENT, INIT_INLINE_COMMENT
-};
+use crate::lexica::tokens::{Token, TokenUses};
 
 
 const MAX_SIZE_LEXEME: usize = 512;
-pub struct LexicalAnalysis<T> where T: Eq + Copy + Hash + Debug {
+pub struct LexicalAnalysis<T> where T: Eq + Copy + Hash {
     pub row: u16, 
     pub col: u16,
     init: usize,
@@ -29,11 +25,11 @@ pub struct LexicalAnalysis<T> where T: Eq + Copy + Hash + Debug {
     dfa_end_comment: Option<TokensDFA<u32>>
 }
 
-impl<T> LexicalAnalysis<T> where T: Eq + Copy + Hash + Debug {
+impl<T> LexicalAnalysis<T> where T: Eq + Copy + Hash {
     pub fn new(tokens_regexs: Vec<(T, TokenUses, Regex)>, filepath: &str) -> Self {       
         let mut dfa_end_comment = None;
         for (_,mask, regex) in &tokens_regexs {
-            if *mask == END_BLOCK_COMMENT {
+            if *mask == TokenUses::EndBlockComment {
                 dfa_end_comment = Some(
                     TokensDFA::new(vec![(0, *mask, regex.clone())]
                 ));
@@ -103,20 +99,20 @@ impl<T> LexicalAnalysis<T> where T: Eq + Copy + Hash + Debug {
             self.init = self.next - 1;
 
             match *mask {
-                IGNORE_THIS => { },
-                INIT_BLOCK_COMMENT => { 
+                TokenUses::IgnoreThis => { },
+                TokenUses::InitBlockComment => { 
                     self.handle_comment(); 
                 },
-                INIT_INLINE_COMMENT => { 
+                TokenUses::InitInlineComment => { 
                     self.handle_inline_comment(); 
                 },
-                END_BLOCK_COMMENT => { 
+                TokenUses::EndBlockComment => { 
                     panic!("Error({},{}): comment not started", self.row, self.col);
                 },
-                GET_LEXEME => { 
+                TokenUses::GetLexeme => { 
                     return Some(Token { t_type: *token_type, t_name }); 
                 },
-                _ => { 
+                TokenUses::Default => { 
                     return Some(Token { t_type: *token_type, t_name: None }); 
                 }
             }
@@ -126,7 +122,7 @@ impl<T> LexicalAnalysis<T> where T: Eq + Copy + Hash + Debug {
         }
     }
 
-    fn handle_inline_comment(&mut self){
+    fn handle_inline_comment(&mut self) {
         let init = self.init;
         while self.c != b'\n' && self.c != 255  {  
             self.next_char();
@@ -164,7 +160,7 @@ impl<T> LexicalAnalysis<T> where T: Eq + Copy + Hash + Debug {
         }
     }
 
-    fn get_string_buffer(&self) -> String{
+    fn get_string_buffer(&self) -> String {
         let length = (self.next - 1 - self.init + 2 * MAX_SIZE_LEXEME) % (2 * MAX_SIZE_LEXEME);
         let mut j = self.init;
     
@@ -177,7 +173,7 @@ impl<T> LexicalAnalysis<T> where T: Eq + Copy + Hash + Debug {
     }
 }
 
-impl<T> Iterator for LexicalAnalysis<T> where T: Eq + Copy + Hash + Debug{
+impl<T> Iterator for LexicalAnalysis<T> where T: Eq + Copy + Hash {
     type Item = Token<T>;
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -1,22 +1,20 @@
 use std::collections::HashMap;
-use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::lexica::{regex::Regex, tokens::DEFAULT};
-use crate::lexica::tokens::TokenUses;
+use crate::lexica::{regex::Regex, tokens::TokenUses};
 
 type State = i32;
 pub const INIT_STATE: State = 0; 
 pub const ERROR_STATE: State = -1;
 
-#[derive(Debug)]
-pub struct TokensNFA<T> where T: Eq + Copy + Hash + Debug {
+
+pub struct TokensNFA<T> where T: Eq + Copy + Hash{
     pub states: State,
     pub finals: Vec<(T, TokenUses, State)>,
     pub transitions: HashMap<(State, u8), Vec<State>>,
 }
 
-impl<T> TokensNFA<T> where T: Eq + Copy + Hash + Debug {
+impl<T> TokensNFA<T> where T: Eq + Copy + Hash{
     pub fn new(tokens_regexs: Vec<(T, TokenUses, Regex)>) -> Self {
         let mut nfa = Self {states: 1, finals: Vec::new(), transitions: HashMap::new()};
         
@@ -117,19 +115,18 @@ impl<T> TokensNFA<T> where T: Eq + Copy + Hash + Debug {
 }
 
 
-#[derive(Debug)]
-pub struct TokensDFA<T> where T: Eq + Copy + Hash + Debug{
+pub struct TokensDFA<T> where T: Eq + Copy + Hash {
     pub states: u32,
     pub finals: Vec<(Option<T>, TokenUses)>,
     pub transitions: Vec<[State; 256]>
 }
 
-impl<T> TokensDFA<T> where T: Eq + Copy + Hash + Debug {
+impl<T> TokensDFA<T> where T: Eq + Copy + Hash {
     pub fn new(tokens_regexs: Vec<(T, TokenUses, Regex)>) -> Self {
         let afd = TokensDFA::from_nfa(TokensNFA::new(tokens_regexs));
 
         let states = afd.0.len() as u32;
-        let mut finals = vec![(None, DEFAULT); states as usize];
+        let mut finals = vec![(None, TokenUses::Default); states as usize];
         
         for (name, mask, state) in afd.1 {
             finals[state as usize] = (Some(name), mask);
